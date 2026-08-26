@@ -45,6 +45,8 @@ python main.py
 
 Pełna instrukcja krok po kroku, z konfiguracją Discorda i YouTube:
 **[poradnik.md](poradnik.md)**.
+Nie interesują Cię szczegóły techniczne, chcesz tylko wiedzieć co mówić?
+**[jak-uzywac.md](jak-uzywac.md)**.
 
 ---
 
@@ -191,5 +193,6 @@ MIT — szczegóły w pliku [LICENSE](LICENSE).
 
 ## Dokumentacja
 
+- [jak-uzywac.md](jak-uzywac.md) — **jak używać na co dzień**, opisane bez żargonu
 - [poradnik.md](poradnik.md) — instalacja, konfiguracja, testowanie krok po kroku
 - [jarvis.md](jarvis.md) — pierwotna specyfikacja projektu

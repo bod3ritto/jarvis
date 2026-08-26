@@ -27,3 +27,4 @@ data/voice_profiles/
 # OS
 .DS_Store
 Thumbs.db
+data/chrome_profile/

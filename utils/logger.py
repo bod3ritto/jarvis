@@ -2,6 +2,8 @@
 utils/logger.py — Centralna konfiguracja logowania dla JARVIS.
 
 Kolorowe logi w konsoli (colorlog) + zapis do pliku logs/jarvis.log.
+colorlog jest opcjonalny — bez niego logi są zwykłe, ale wszystko działa.
+
 Użycie w dowolnym module:
 
     from utils.logger import get_logger
@@ -10,11 +12,42 @@ Użycie w dowolnym module:
 import logging
 import logging.handlers
 
-import colorlog
+try:
+    import colorlog
+
+    HAS_COLORLOG = True
+except ImportError:  # kolory są miłym dodatkiem, nie wymogiem
+    HAS_COLORLOG = False
 
 import config
 
 _configured = False
+
+CONSOLE_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+
+def _build_console_handler() -> logging.Handler:
+    """Handler konsolowy — kolorowy jeśli colorlog dostępny, inaczej zwykły."""
+    if HAS_COLORLOG:
+        handler = colorlog.StreamHandler()
+        handler.setFormatter(
+            colorlog.ColoredFormatter(
+                f"%(log_color)s{CONSOLE_FORMAT}",
+                datefmt="%H:%M:%S",
+                log_colors={
+                    "DEBUG": "cyan",
+                    "INFO": "green",
+                    "WARNING": "yellow",
+                    "ERROR": "red",
+                    "CRITICAL": "bold_red",
+                },
+            )
+        )
+        return handler
+
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter(CONSOLE_FORMAT, datefmt="%H:%M:%S"))
+    return handler
 
 
 def setup_logging() -> None:
@@ -27,22 +60,7 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(level)
 
-    # Konsola — kolorowe logi
-    console_handler = colorlog.StreamHandler()
-    console_handler.setFormatter(
-        colorlog.ColoredFormatter(
-            "%(log_color)s%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-            datefmt="%H:%M:%S",
-            log_colors={
-                "DEBUG": "cyan",
-                "INFO": "green",
-                "WARNING": "yellow",
-                "ERROR": "red",
-                "CRITICAL": "bold_red",
-            },
-        )
-    )
-    root.addHandler(console_handler)
+    root.addHandler(_build_console_handler())
 
     # Plik — rotacja przy przekroczeniu LOG_MAX_SIZE
     file_handler = logging.handlers.RotatingFileHandler(
@@ -51,9 +69,7 @@ def setup_logging() -> None:
         backupCount=3,
         encoding="utf-8",
     )
-    file_handler.setFormatter(
-        logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    )
+    file_handler.setFormatter(logging.Formatter(CONSOLE_FORMAT))
     root.addHandler(file_handler)
 
     _configured = True

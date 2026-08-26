@@ -1,71 +1,79 @@
 """
-commands/command_parser.py — Parser NLP: zamienia rozpoznany tekst na (komenda, pewność, parametry).
+commands/command_parser.py — Parser komend: tekst -> (komenda, pewność, parametry).
 
-Wymaga modelu spaCy dla polskiego:
-    python -m spacy download pl_core_news_sm
+Dopasowanie działa na tokenach (granice słów), nie na surowych podciągach —
+dzięki temu rdzeń "ad" nie trafia już w "adama". Polską fleksję obsługują
+rdzenie: "kanał" łapie "kanału"/"kanale", "reklam" łapie "reklamę"/"reklamy".
 
-Dopasowanie oparte o słowa kluczowe (substring) + fuzzy fallback (difflib)
-dla odporności na drobne błędy rozpoznawania mowy.
+Pewność = jaka część wypowiedzi została wyjaśniona przez daną komendę
+(pokrycie), a NIE ile z jej słów kluczowych trafiło. To istotne: słowa
+kluczowe to warianty/synonimy, więc dopisanie kolejnego synonimu nie może
+obniżać pewności — na tym błędzie poprzednia wersja wykładała się na
+jednowyrazowych komendach ("pauza", "wyłącz się", "jaka godzina").
+
+Moduł jest celowo bez zewnętrznych zależności — testy parsera uruchamiają się
+bez instalowania czegokolwiek.
 """
 import re
 from difflib import SequenceMatcher
-from typing import Dict, List, Optional, Tuple
-
-import spacy
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-MATCH_THRESHOLD = 0.3  # Minimalna pewność, żeby uznać dopasowanie za trafne
-FUZZY_MATCH_THRESHOLD = 0.8  # Próg podobieństwa słów dla fuzzy fallback
-FUZZY_PARTIAL_WEIGHT = 0.35  # Waga fuzzy trafienia (mniejsza niż exact match)
+MATCH_THRESHOLD = 0.35  # Minimalne pokrycie wypowiedzi, żeby uznać komendę za trafną
+FUZZY_THRESHOLD = 0.87  # Podobieństwo tokena do rdzenia przy literówkach STT
+FUZZY_WEIGHT = 0.5  # Trafienie fuzzy liczy się słabiej niż dokładne
+MIN_PREFIX_LEN = 4  # Krótsze rdzenie muszą trafiać w cały token (bez prefiksów)
+
+# Słowa funkcyjne — nie niosą treści, więc nie rozcieńczają pokrycia.
+STOPWORDS = frozenset(
+    {
+        "a", "aby", "ale", "by", "co", "czy", "do", "dla", "i", "jest", "już", "juz",
+        "ja", "mi", "mnie", "na", "nam", "no", "o", "od", "oraz", "po", "proszę",
+        "prosze", "przez", "się", "sie", "tam", "te", "tego", "ten", "teraz", "to",
+        "tu", "tę", "w", "we", "z", "za", "ze", "the",
+    }
+)
 
 
 class CommandParser:
-    def __init__(self, spacy_model: str = "pl_core_news_sm"):
-        try:
-            self.nlp = spacy.load(spacy_model)
-        except OSError:
-            logger.error(
-                f"❌ Brak modelu spaCy '{spacy_model}'. Pobierz go przez:\n"
-                f"    python -m spacy download {spacy_model}"
-            )
-            raise
+    def __init__(self):
         self.commands_db = self._init_commands()
 
     def _init_commands(self) -> Dict[str, Dict]:
-        """Baza komend: słowa kluczowe, przykłady, priorytet (do rozstrzygania remisów)."""
+        """Baza komend. 'keywords' to RDZENIE — łapią też formy odmienione."""
         return {
             # --- YouTube ---
             "youtube_skip_ad": {
-                "keywords": ["pomiń", "reklamę", "reklama", "skip", "ad"],
-                "examples": ["pomiń reklamę", "skip ad"],
+                "keywords": ["pomiń", "pomin", "reklam", "skip"],
+                "examples": ["pomiń reklamę"],
                 "priority": 10,
             },
             "youtube_play": {
-                "keywords": ["odtwórz", "wznów", "play", "start"],
+                "keywords": ["odtwórz", "odtworz", "wznów", "wznow", "play", "graj"],
                 "examples": ["odtwórz", "wznów"],
                 "priority": 9,
             },
             "youtube_pause": {
-                "keywords": ["pauza", "zatrzymaj", "pause", "stop"],
+                "keywords": ["pauz", "zatrzymaj", "stop", "pause"],
                 "examples": ["pauza", "zatrzymaj"],
                 "priority": 9,
             },
             "youtube_next": {
-                "keywords": ["następne", "następny", "kolejne", "next"],
+                "keywords": ["następn", "nastepn", "kolejn", "next", "dalej"],
                 "examples": ["następne wideo"],
                 "priority": 8,
             },
             "youtube_previous": {
-                "keywords": ["poprzednie", "poprzedni", "previous", "wróć"],
+                "keywords": ["poprzedni", "previous", "cofnij", "wróć", "wroc"],
                 "examples": ["poprzednie wideo"],
                 "priority": 8,
             },
             "youtube_fullscreen": {
-                "keywords": ["pełny", "ekran", "fullscreen"],
+                "keywords": ["pełn", "peln", "ekran", "fullscreen"],
                 "examples": ["pełny ekran"],
                 "priority": 7,
             },
@@ -76,52 +84,54 @@ class CommandParser:
                 "priority": 10,
             },
             "discord_unmute": {
-                "keywords": ["włącz", "mikrofon", "unmute"],
+                "keywords": ["włącz", "wlacz", "mikrofon", "unmute", "odcisz"],
                 "examples": ["włącz mikrofon"],
                 "priority": 10,
             },
             "discord_deafen": {
-                "keywords": ["wycisz", "dźwięk", "deafen"],
+                "keywords": ["wycisz", "dźwięk", "dzwiek", "deafen", "ogłusz"],
                 "examples": ["wycisz dźwięk"],
                 "priority": 9,
             },
             "discord_switch_channel": {
-                "keywords": ["przełącz", "kanał", "channel"],
+                "keywords": ["przełącz", "przelacz", "kanał", "kanal", "channel"],
                 "examples": ["przełącz na kanał gaming"],
                 "priority": 8,
             },
             "discord_join_channel": {
-                "keywords": ["dołącz", "kanału", "join"],
+                "keywords": ["dołącz", "dolacz", "kanał", "kanal", "join", "wejdź"],
                 "examples": ["dołącz do kanału ogólny"],
                 "priority": 8,
             },
             "discord_leave_channel": {
-                "keywords": ["opuść", "kanał", "leave"],
+                "keywords": ["opuść", "opusc", "wyjdź", "wyjdz", "rozłącz", "leave", "kanał"],
                 "examples": ["opuść kanał"],
                 "priority": 8,
             },
             "discord_mute_user": {
-                "keywords": ["wycisz", "użytkownika", "usera", "osobę"],
+                "keywords": ["wycisz", "użytkownik", "uzytkownik", "user", "osob", "gości"],
                 "examples": ["wycisz użytkownika Kowalski"],
-                "priority": 11,  # wyższy priorytet niż discord_mute (własny mikrofon)
+                "priority": 11,
             },
             "discord_view_screen": {
-                "keywords": ["pokaż", "ekran", "udostępnia", "stream"],
+                "keywords": ["pokaż", "pokaz", "ekran", "stream", "udostępni"],
                 "examples": ["pokaż ekran Kowalskiego"],
                 "priority": 9,
             },
             # --- System ---
             "system_time": {
-                "keywords": ["godzina", "która", "czas", "time"],
+                "keywords": ["godzin", "która", "ktora", "czas", "time"],
                 "examples": ["jaka godzina"],
                 "priority": 6,
             },
             "system_exit": {
-                "keywords": ["wyłącz", "zamknij", "koniec", "exit"],
+                "keywords": ["wyłącz", "wylacz", "zamknij", "koniec", "exit", "żegnaj"],
                 "examples": ["wyłącz się"],
                 "priority": 6,
             },
         }
+
+    # ---------------- Słowo aktywacyjne ----------------
 
     def was_activated(self, text: str) -> bool:
         """True jeśli tekst zaczyna się od słowa aktywacyjnego (np. 'Dżarwis, ...')."""
@@ -129,92 +139,103 @@ class CommandParser:
         return self.strip_activation_keyword(normalized) != normalized
 
     def strip_activation_keyword(self, text: str) -> str:
-        """Usuwa słowo aktywacyjne (np. 'dżarwis,') z początku tekstu, jeśli obecne."""
+        """Usuwa słowo aktywacyjne z początku tekstu, jeśli obecne."""
         text = text.strip()
         for variant in config.ACTIVATION_KEYWORDS_VARIANTS:
-            pattern = rf"^{re.escape(variant)}[,\s]*"
+            pattern = rf"^{re.escape(variant)}\b[,\s]*"
             if re.match(pattern, text, flags=re.IGNORECASE):
-                return re.sub(pattern, "", text, flags=re.IGNORECASE).strip()
+                return re.sub(pattern, "", text, count=1, flags=re.IGNORECASE).strip()
         return text
 
-    def parse(self, text: str) -> Tuple[Optional[str], float, Dict]:
-        """Parsuje tekst i zwraca (nazwa_komendy, pewność, parametry). (None, 0, {}) jeśli brak dopasowania."""
-        text = self.strip_activation_keyword(text.lower().strip())
-        doc = self.nlp(text)
-        tokens = [t.text for t in doc]
+    # ---------------- Parsowanie ----------------
 
-        best_match = None
+    @staticmethod
+    def tokenize(text: str) -> List[str]:
+        """Dzieli tekst na tokeny słowne (z polskimi znakami), pomijając interpunkcję."""
+        return re.findall(r"\w+", text.lower(), flags=re.UNICODE)
+
+    def parse(self, text: str) -> Tuple[Optional[str], float, Dict]:
+        """Zwraca (nazwa_komendy, pewność, parametry) lub (None, 0.0, {})."""
+        stripped = self.strip_activation_keyword(text.lower().strip())
+        tokens = self.tokenize(stripped)
+        content_tokens = [t for t in tokens if t not in STOPWORDS]
+
+        if not content_tokens:
+            logger.info("❌ Pusta wypowiedź po odfiltrowaniu słów funkcyjnych")
+            return None, 0.0, {}
+
+        best_match: Optional[str] = None
         best_score = 0.0
         best_priority = -1
 
-        for command_name, command_info in self.commands_db.items():
-            score = self._calculate_match_score(text, tokens, command_info)
-            priority = command_info.get("priority", 0)
+        for name, info in self.commands_db.items():
+            score = self._coverage_score(content_tokens, info["keywords"])
+            priority = info.get("priority", 0)
+            if score > best_score or (score == best_score and score > 0 and priority > best_priority):
+                best_score, best_match, best_priority = score, name, priority
 
-            if score > best_score or (score == best_score and priority > best_priority):
-                best_score = score
-                best_match = command_name
-                best_priority = priority
-
-        if best_score >= MATCH_THRESHOLD:
-            params = self._extract_parameters(text, best_match)
-            logger.info(f"✅ Komenda: {best_match} (pewność: {best_score:.2%})")
+        if best_match is not None and best_score >= MATCH_THRESHOLD:
+            params = self._extract_parameters(tokens, best_match)
+            logger.info(f"✅ Komenda: {best_match} (pewność: {best_score:.0%})")
             return best_match, best_score, params
 
-        logger.info(f"❌ Brak pewnego dopasowania dla: '{text}'")
+        logger.info(f"❌ Brak pewnego dopasowania dla: '{stripped}'")
         return None, 0.0, {}
 
-    def _calculate_match_score(self, text: str, tokens: List[str], command_info: Dict) -> float:
-        """Score = suma trafień słów kluczowych (exact substring lub fuzzy), znormalizowana."""
-        keywords = command_info.get("keywords", [])
-        if not keywords:
+    def _coverage_score(self, content_tokens: Sequence[str], keywords: Sequence[str]) -> float:
+        """Jaka część wypowiedzi (0-1) jest wyjaśniona przez słowa kluczowe komendy."""
+        if not content_tokens:
             return 0.0
-
-        score = 0.0
-        for keyword in keywords:
-            if keyword in text:
-                score += 1.0
-            elif self._fuzzy_match(keyword, tokens):
-                score += FUZZY_PARTIAL_WEIGHT
-
-        return min(score / len(keywords), 1.0)
-
-    def _fuzzy_match(self, keyword: str, tokens: List[str]) -> bool:
-        """Sprawdza, czy jakiś token jest wystarczająco podobny do słowa kluczowego (błędy STT)."""
-        return any(
-            SequenceMatcher(None, keyword, token).ratio() >= FUZZY_MATCH_THRESHOLD
-            for token in tokens
+        matched = sum(
+            max((self._token_weight(tok, kw) for kw in keywords), default=0.0)
+            for tok in content_tokens
         )
+        return min(matched / len(content_tokens), 1.0)
 
-    def _extract_parameters(self, text: str, command: str) -> Dict:
-        """Wyciąga parametry z tekstu (nazwa kanału, nazwa użytkownika, liczba sekund)."""
+    @staticmethod
+    def _token_weight(token: str, keyword: str) -> float:
+        """1.0 = trafienie dokładne/rdzeniem, FUZZY_WEIGHT = literówka STT, 0.0 = brak."""
+        if token == keyword:
+            return 1.0
+        if len(keyword) >= MIN_PREFIX_LEN and token.startswith(keyword):
+            return 1.0
+        if SequenceMatcher(None, keyword, token).ratio() >= FUZZY_THRESHOLD:
+            return FUZZY_WEIGHT
+        return 0.0
+
+    # ---------------- Parametry ----------------
+
+    # Słowo, po którym w wypowiedzi występuje nazwa kanału / użytkownika.
+    PARAM_TRIGGERS = {
+        "discord_switch_channel": ("kanał", "kanal", "channel"),
+        "discord_join_channel": ("kanał", "kanal", "channel"),
+        "discord_mute_user": ("użytkownik", "uzytkownik", "user", "osob"),
+        "discord_view_screen": ("ekran",),
+    }
+
+    def _extract_parameters(self, tokens: List[str], command: str) -> Dict:
+        """Wyciąga nazwę kanału/użytkownika (reszta zdania po wyzwalaczu) i liczbę sekund."""
         params: Dict = {}
-        words = text.split()
 
-        if command in ("discord_switch_channel", "discord_join_channel"):
-            for trigger in ("kanał", "kanału", "channel"):
-                if trigger in words:
-                    idx = words.index(trigger)
-                    if idx + 1 < len(words):
-                        params["channel_name"] = words[idx + 1]
-                        break
+        triggers = self.PARAM_TRIGGERS.get(command)
+        if triggers:
+            value = self._tail_after_trigger(tokens, triggers)
+            if value:
+                key = "channel_name" if command.endswith("_channel") else "user_name"
+                params[key] = value
 
-        if command == "discord_mute_user":
-            for trigger in ("użytkownika", "usera", "osobę"):
-                if trigger in words:
-                    idx = words.index(trigger)
-                    if idx + 1 < len(words):
-                        params["user_name"] = words[idx + 1]
-                        break
-
-        if command == "discord_view_screen" and "ekran" in words:
-            idx = words.index("ekran")
-            if idx + 1 < len(words):
-                params["user_name"] = words[idx + 1]
-
-        if any(x in text for x in ("sekund", "seconds")):
-            numbers = re.findall(r"\d+", text)
+        if any(t.startswith("sekund") or t.startswith("second") for t in tokens):
+            numbers = [t for t in tokens if t.isdigit()]
             if numbers:
                 params["seconds"] = int(numbers[0])
 
         return params
+
+    @staticmethod
+    def _tail_after_trigger(tokens: List[str], triggers: Sequence[str]) -> Optional[str]:
+        """Reszta wypowiedzi po słowie-wyzwalaczu — nazwy bywają wielowyrazowe."""
+        for idx, token in enumerate(tokens):
+            if any(token.startswith(trigger) for trigger in triggers):
+                tail = [t for t in tokens[idx + 1:] if t not in STOPWORDS]
+                return " ".join(tail) if tail else None
+        return None

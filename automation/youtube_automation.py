@@ -2,22 +2,23 @@
 automation/youtube_automation.py — Sterowanie YouTube przez Selenium.
 
 Decyzja architektoniczna: JARVIS uruchamia WŁASNĄ, oddzielną przeglądarkę Chrome
-(nie podłącza się do przeglądarki użytkownika). Żeby nie trzeba było logować się
-do Google/YouTube przy każdym starcie, przeglądarka używa dedykowanego, trwałego
-profilu Chrome zapisanego w data/chrome_profile/ — zaloguj się tam RAZ ręcznie,
-sesja zostanie zapamiętana.
+(nie podłącza się do przeglądarki użytkownika). Żeby nie logować się do Google
+przy każdym starcie, używany jest trwały profil w data/chrome_profile/ —
+zaloguj się tam RAZ ręcznie, sesja zostanie zapamiętana.
 """
 import os
-import time
 
 from selenium import webdriver
-from selenium.common.exceptions import NoSuchElementException, TimeoutException
+from selenium.common.exceptions import (
+    NoSuchElementException,
+    TimeoutException,
+    WebDriverException,
+)
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
 
 import config
@@ -26,7 +27,15 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 CHROME_PROFILE_DIR = os.path.join(config.DATA_DIR, "chrome_profile")
-ELEMENT_WAIT_TIMEOUT = 5  # sekund na pojawienie się elementu (np. przycisku skip)
+ELEMENT_WAIT_TIMEOUT = 5  # sekund na pojawienie się elementu wideo
+SKIP_BUTTON_WAIT = 1.5  # krótko — gdy reklamy nie ma, nie ma na co czekać
+
+# YouTube przez lata zmieniał klasę przycisku "Pomiń reklamę"; łapiemy warianty.
+SKIP_BUTTON_SELECTOR = (
+    "button[class*='ytp-ad-skip-button'], "
+    "button[class*='ytp-skip-ad-button'], "
+    "button[class*='ytp-ad-survey-answer-button']"
+)
 
 
 class YouTubeAutomation:
@@ -43,9 +52,7 @@ class YouTubeAutomation:
         os.makedirs(CHROME_PROFILE_DIR, exist_ok=True)
 
         if self.browser != "chrome":
-            logger.warning(
-                f"⚠️ Silnik '{self.browser}' nieobsługiwany jeszcze — używam Chrome"
-            )
+            logger.warning(f"⚠️ Silnik '{self.browser}' nieobsługiwany — używam Chrome")
 
         options = Options()
         options.add_argument(f"--user-data-dir={CHROME_PROFILE_DIR}")
@@ -61,83 +68,118 @@ class YouTubeAutomation:
 
     def close(self) -> None:
         if self.driver:
-            self.driver.quit()
-            self.driver = None
-            logger.info("🌐 Przeglądarka YouTube zamknięta")
+            try:
+                self.driver.quit()
+            except WebDriverException as e:
+                logger.warning(f"⚠️ Przeglądarka zamknięta niepełnie: {e}")
+            finally:
+                self.driver = None
+                logger.info("🌐 Przeglądarka YouTube zamknięta")
 
     def open_video(self, url: str) -> None:
-        """Otwiera dany URL (np. konkretne wideo lub youtube.com)."""
+        """Otwiera dany URL (konkretne wideo lub youtube.com)."""
         if not self.is_running():
             self.initialize()
         self.driver.get(url)
 
     def _get_video_element(self):
+        """Element <video> aktualnej strony. Rzuca TimeoutException, gdy go brak."""
         return WebDriverWait(self.driver, ELEMENT_WAIT_TIMEOUT).until(
             EC.presence_of_element_located((By.TAG_NAME, "video"))
         )
 
-    def skip_ad(self, skip_time: int = config.YOUTUBE_SKIP_AD_TIME) -> bool:
-        """Kliknij 'Pomiń reklamę' jeśli dostępny, inaczej przewiń wideo do przodu."""
+    def _require_driver(self, action: str) -> bool:
         if not self.is_running():
-            logger.warning("⚠️ Przeglądarka nieuruchomiona — nie mogę pominąć reklamy")
+            logger.warning(f"⚠️ Przeglądarka nieuruchomiona — nie mogę wykonać: {action}")
+            return False
+        return True
+
+    def skip_ad(self, skip_time: int = config.YOUTUBE_SKIP_AD_TIME) -> bool:
+        """
+        Klika "Pomiń reklamę", a gdy przycisku nie ma — przeskakuje do przodu.
+
+        Skok robimy przez JS (currentTime += n), bo jest dokładny co do sekundy.
+        Wcześniejsza wersja wysyłała n naciśnięć strzałki w prawo, a jedno
+        naciśnięcie to w YouTube 5 sekund — 30 "sekund" przewijało 150.
+        """
+        if not self._require_driver("pominięcie reklamy"):
             return False
 
         try:
-            skip_button = WebDriverWait(self.driver, ELEMENT_WAIT_TIMEOUT).until(
-                EC.element_to_be_clickable((By.CLASS_NAME, "ytp-ad-skip-button"))
+            skip_button = WebDriverWait(self.driver, SKIP_BUTTON_WAIT).until(
+                EC.element_to_be_clickable((By.CSS_SELECTOR, SKIP_BUTTON_SELECTOR))
             )
             skip_button.click()
-            logger.info("✅ Reklama pominięta (przycisk Skip)")
+            logger.info("✅ Reklama pominięta (przycisk Pomiń)")
             return True
-        except (TimeoutException, NoSuchElementException):
-            try:
-                video = self._get_video_element()
-                video.send_keys(Keys.ARROW_RIGHT * skip_time)
-                logger.info(f"⏭️ Brak przycisku Skip — przewinięto o {skip_time}s")
-                return True
-            except (TimeoutException, NoSuchElementException):
-                logger.error("❌ Nie znaleziono elementu wideo")
-                return False
+        except (TimeoutException, NoSuchElementException, WebDriverException):
+            logger.info("ℹ️ Brak przycisku Pomiń — przewijam do przodu")
 
-    def play_pause(self) -> bool:
-        """Toggle (spacja) — przełącza stan niezależnie od tego, co gra."""
+        return self.seek(skip_time)
+
+    def seek(self, seconds: int) -> bool:
+        """Przeskakuje o zadaną liczbę sekund (ujemna = do tyłu)."""
+        if not self._require_driver("przewinięcie"):
+            return False
         try:
             video = self._get_video_element()
-            video.send_keys(Keys.SPACE)
-            logger.info("▶️/⏸️ Play/Pause (toggle)")
+            self.driver.execute_script(
+                "arguments[0].currentTime = Math.max(0, arguments[0].currentTime + arguments[1]);",
+                video,
+                seconds,
+            )
+            logger.info(f"⏭️ Przewinięto o {seconds}s")
             return True
-        except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"❌ Błąd play/pause: {e}")
+        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+            logger.error(f"❌ Nie udało się przewinąć: {e}")
+            return False
+
+    def _set_paused(self, should_pause: bool) -> bool:
+        """Wspólna logika play/pause — ustawia stan, zamiast go przełączać."""
+        action = "pauza" if should_pause else "odtwarzanie"
+        if not self._require_driver(action):
+            return False
+        try:
+            video = self._get_video_element()
+            self.driver.execute_script(
+                "if (arguments[1]) { arguments[0].pause(); } else { arguments[0].play(); }",
+                video,
+                should_pause,
+            )
+            logger.info("⏸️ Zatrzymano" if should_pause else "▶️ Wznowiono")
+            return True
+        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+            logger.error(f"❌ Błąd ({action}): {e}")
             return False
 
     def play(self) -> bool:
-        """Jednoznacznie wznów odtwarzanie (nie toggle) — przez JS, sprawdza stan .paused."""
-        try:
-            video = self._get_video_element()
-            self.driver.execute_script(
-                "if (arguments[0].paused) { arguments[0].play(); }", video
-            )
-            logger.info("▶️ Odtwarzanie wznowione")
-            return True
-        except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"❌ Błąd odtwarzania: {e}")
-            return False
+        """Wznawia odtwarzanie. Na grającym wideo nie robi nic (nie jest przełącznikiem)."""
+        return self._set_paused(False)
 
     def pause(self) -> bool:
-        """Jednoznacznie zatrzymaj odtwarzanie (nie toggle) — przez JS, sprawdza stan .paused."""
+        """Zatrzymuje odtwarzanie. Na zatrzymanym nie robi nic."""
+        return self._set_paused(True)
+
+    def play_pause(self) -> bool:
+        """Przełącza stan odtwarzania (gra <-> pauza)."""
+        if not self._require_driver("play/pause"):
+            return False
         try:
             video = self._get_video_element()
             self.driver.execute_script(
-                "if (!arguments[0].paused) { arguments[0].pause(); }", video
+                "if (arguments[0].paused) { arguments[0].play(); } else { arguments[0].pause(); }",
+                video,
             )
-            logger.info("⏸️ Odtwarzanie zatrzymane")
+            logger.info("▶️/⏸️ Przełączono odtwarzanie")
             return True
-        except (TimeoutException, NoSuchElementException) as e:
-            logger.error(f"❌ Błąd pauzy: {e}")
+        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
+            logger.error(f"❌ Błąd play/pause: {e}")
             return False
 
     def next_video(self) -> bool:
-        """Następne wideo (działa tylko w kontekście playlisty/kolejki)."""
+        """Następne wideo — działa w kontekście playlisty/kolejki."""
+        if not self._require_driver("następne wideo"):
+            return False
         try:
             next_btn = WebDriverWait(self.driver, ELEMENT_WAIT_TIMEOUT).until(
                 EC.element_to_be_clickable((By.CLASS_NAME, "ytp-next-button"))
@@ -145,26 +187,30 @@ class YouTubeAutomation:
             next_btn.click()
             logger.info("⏭️ Następne wideo")
             return True
-        except (TimeoutException, NoSuchElementException):
+        except (TimeoutException, NoSuchElementException, WebDriverException):
             logger.warning("⚠️ Brak przycisku 'następne' (poza playlistą?)")
             return False
 
     def previous_video(self) -> bool:
-        """Cofnij do poprzedniej strony w historii przeglądarki (YouTube nie ma natywnego 'previous')."""
+        """Cofa do poprzedniej strony — YouTube nie ma natywnego 'poprzednie wideo'."""
+        if not self._require_driver("poprzednie wideo"):
+            return False
         try:
             self.driver.back()
             logger.info("⏪ Cofnięto do poprzedniej strony")
             return True
-        except Exception as e:
+        except WebDriverException as e:
             logger.error(f"❌ Błąd przy cofaniu: {e}")
             return False
 
     def fullscreen(self) -> bool:
+        """Przełącza pełny ekran (klawisz 'f' odtwarzacza YouTube)."""
+        if not self._require_driver("pełny ekran"):
+            return False
         try:
-            video = self._get_video_element()
-            video.send_keys("f")
+            self._get_video_element().send_keys("f")
             logger.info("🖥️ Pełny ekran")
             return True
-        except (TimeoutException, NoSuchElementException) as e:
+        except (TimeoutException, NoSuchElementException, WebDriverException) as e:
             logger.error(f"❌ Błąd pełnego ekranu: {e}")
             return False

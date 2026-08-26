@@ -1,11 +1,16 @@
 """
 voice/speech_engine.py — Rozpoznawanie mowy (Speech-to-Text).
 
-Używa darmowego, nieoficjalnego endpointu Google przez
-SpeechRecognition.recognize_google() — bez klucza API, wymaga internetu.
+Korzysta z darmowego, nieoficjalnego endpointu Google przez
+SpeechRecognition.recognize_google() — bez klucza API, ale wymaga internetu.
+
+Kalibracja szumu otoczenia robiona jest RAZ, przy pierwszym nasłuchu.
+Powtarzanie jej przed każdą komendą dokładało pół sekundy do każdego
+rozpoznania, a warunki akustyczne i tak nie zmieniają się z minuty na minutę.
+Do ponownej kalibracji (np. po włączeniu wentylatora) służy recalibrate().
 """
 import threading
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 import speech_recognition as sr
 
@@ -13,6 +18,8 @@ import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+CALIBRATION_DURATION = 0.8  # sekund nasłuchu tła przy kalibracji
 
 
 class SpeechEngine:
@@ -23,58 +30,74 @@ class SpeechEngine:
         microphone_index: Optional[int] = config.MICROPHONE_INDEX,
     ):
         self.recognizer = sr.Recognizer()
+        self.recognizer.energy_threshold = config.NOISE_THRESHOLD * 20  # skala 0-100 -> energia
+        self.recognizer.dynamic_energy_threshold = True
+
         self.language = language
         self.engine = engine
         self.microphone = sr.Microphone(device_index=microphone_index)
+
+        self._calibrated = False
         self.is_listening = False
         self.on_recognized: Optional[Callable[[str], None]] = None
+
+    @staticmethod
+    def list_microphones() -> List[str]:
+        """Nazwy dostępnych mikrofonów — indeks na liście to MICROPHONE_INDEX z config.py."""
+        return sr.Microphone.list_microphone_names()
+
+    def recalibrate(self) -> None:
+        """Wymusza ponowną kalibrację szumu przy następnym nasłuchu."""
+        self._calibrated = False
 
     def recognize(
         self,
         timeout: int = config.LISTEN_TIMEOUT,
         phrase_time_limit: int = config.PHRASE_TIME_LIMIT,
     ) -> Optional[str]:
-        """Nasłuchuje z mikrofonu i zwraca rozpoznany tekst (lowercase) lub None."""
+        """Nasłuchuje z mikrofonu i zwraca rozpoznany tekst (lowercase) albo None."""
         try:
             with self.microphone as source:
-                # Kalibracja szumu otoczenia
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                if not self._calibrated:
+                    logger.info("🎚️ Kalibruję poziom szumu otoczenia...")
+                    self.recognizer.adjust_for_ambient_noise(source, duration=CALIBRATION_DURATION)
+                    self._calibrated = True
 
                 logger.info("🎤 Słucham...")
                 audio = self.recognizer.listen(
                     source, timeout=timeout, phrase_time_limit=phrase_time_limit
                 )
 
-            if self.engine == "google":
-                text = self.recognizer.recognize_google(audio, language=self.language)
-            else:
+            if self.engine != "google":
                 raise ValueError(f"Nieobsługiwany silnik rozpoznawania mowy: {self.engine}")
 
+            text = self.recognizer.recognize_google(audio, language=self.language)
             logger.info(f"📝 Rozpoznano: {text}")
             return text.lower()
 
         except sr.WaitTimeoutError:
-            logger.warning("⏱️ Nie wykryto mowy w wyznaczonym czasie")
+            logger.info("⏱️ Nie wykryto mowy w wyznaczonym czasie")
             return None
         except sr.UnknownValueError:
-            logger.warning("❌ Nie zrozumiałem, spróbuj ponownie")
+            logger.info("❓ Nie zrozumiałem nagrania")
             return None
         except sr.RequestError as e:
-            logger.error(f"❌ Błąd API rozpoznawania mowy: {e}")
+            logger.error(f"❌ Błąd usługi rozpoznawania (brak internetu?): {e}")
+            return None
+        except OSError as e:
+            logger.error(f"❌ Problem z mikrofonem: {e}")
             return None
 
     def start_listening_async(self, callback: Callable[[str], None]) -> None:
-        """Uruchamia nasłuchiwanie w tle (osobny wątek), wywołuje callback po każdym rozpoznaniu."""
+        """Nasłuch w tle; callback dostaje każdy rozpoznany tekst."""
         self.is_listening = True
         self.on_recognized = callback
-
-        thread = threading.Thread(target=self._listen_loop, daemon=True)
-        thread.start()
+        threading.Thread(target=self._listen_loop, name="stt", daemon=True).start()
 
     def _listen_loop(self) -> None:
         while self.is_listening:
             text = self.recognize()
-            if text and self.on_recognized:
+            if text and self.is_listening and self.on_recognized:
                 self.on_recognized(text)
 
     def stop_listening(self) -> None:

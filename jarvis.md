@@ -1,5 +1,23 @@
 # 🎤 JARVIS - Asystent Głosowy w Pythonie
 
+> **Uwaga: to jest pierwotna specyfikacja projektu, nie opis aktualnego kodu.**
+> Zachowana jako zapis pierwotnych założeń. W trakcie realizacji kilka rzeczy
+> zmieniło się świadomie:
+>
+> | Specyfikacja mówi | W kodzie jest |
+> |---|---|
+> | spaCy + model `pl_core_news_sm` do NLP | Dopasowanie po rdzeniach, bez spaCy — model 50 MB nie wnosił nic przy dopasowaniu po słowach kluczowych |
+> | `discord.py` jako opcja integracji | Wyłącznie PyAutoGUI + pywinauto — wyciszenie osoby „tylko dla mnie" to lokalna funkcja klienta, niedostępna przez API bota |
+> | Pomijanie reklamy strzałkami (`ARROW_RIGHT * n`) | Skok przez JavaScript — jedna strzałka to w YouTube 5 sekund, więc `n` strzałek przewijało `5n` sekund |
+> | `play_pause()` jako jedna akcja | Rozdzielone `play()` / `pause()` — „odtwórz" nie może zapauzować grającego wideo |
+> | Komendy multimedialne (Spotify, głośność) i pogoda | Niezaimplementowane — są w planach w README |
+>
+> Aktualny opis działania: **[README.md](README.md)**.
+> Instrukcja uruchomienia: **[poradnik.md](poradnik.md)**.
+
+---
+
+
 ## Spis Treści
 1. [Wstęp](#wstęp)
 2. [Wymagania Systemowe](#wymagania-systemowe)

@@ -1,153 +1,179 @@
 # 📖 Poradnik — jak uruchomić i przetestować JARVIS
 
-Ten plik to praktyczny przewodnik krok po kroku. `README.md` to ogólna dokumentacja
-projektu, `jarvis.md` to pełna specyfikacja implementacji — tutaj masz **dokładną
-kolejność czynności**, żeby uruchomić i przetestować to, co już jest zaimplementowane.
+Praktyczny przewodnik krok po kroku. `README.md` opisuje projekt ogólnie,
+`jarvis.md` to pierwotna specyfikacja — tutaj masz **dokładną kolejność
+czynności**, żeby to odpalić.
 
 ---
 
-## 1. Instalacja od zera
+## 1. Instalacja
 
 ```bash
-# 1. Wirtualne środowisko
 python -m venv venv
 venv\Scripts\activate
-
-# 2. Zależności
 pip install -r requirements.txt
-
-# 3. Model NLP (polski)
-python -m spacy download pl_core_news_sm
 ```
 
-Jeśli `pip install pyaudio` się wysypie (częste na Windows):
+Jeśli `pyaudio` nie chce się zainstalować (częste na Windows):
+
 ```bash
 pip install pipwin
 pipwin install pyaudio
 ```
 
----
-
-## 2. Jednorazowa konfiguracja Discorda
-
-Zanim automatyzacja Discorda zadziała, trzeba ręcznie ustawić dwie rzeczy
-**w samej aplikacji Discord**:
-
-1. **Ustawienia użytkownika → Dostępność → włącz "Obsługa czytnika ekranu"**
-   (Screen Reader Support). Bez tego elementy UI nie mają nazw czytelnych dla
-   automatyzacji (`mute_user`, `view_user_screen` nie zadziałają).
-
-2. **Ustawienia użytkownika → Głos i wideo → Skróty klawiszowe** → dodaj:
-   - "Toggle Mute" = `Ctrl+Shift+M`
-   - "Toggle Deafen" = `Ctrl+Shift+D`
-   - Dla obu zaznacz **"Ten skrót działa globalnie"** — inaczej JARVIS musiałby
-     mieć aktywne okno Discorda, żeby zadziałały.
-
-   (Kombinacje klawiszy możesz zmienić w [config.py](config.py) —
-   `DISCORD_MUTE_HOTKEY` / `DISCORD_DEAFEN_HOTKEY` — ale muszą być identyczne
-   z tym, co ustawisz w Discordzie.)
+> Modelu językowego nie trzeba pobierać — parser komend działa bez spaCy.
 
 ---
 
-## 3. Jednorazowa konfiguracja YouTube
+## 2. Sprawdź, który mikrofon widzi system
 
-`test_youtube_automation.py` / `main.py` otwierają **osobną, dedykowaną
-przeglądarkę Chrome** (profil w `data/chrome_profile/`, oddzielny od Twojej
-normalnej przeglądarki). Przy pierwszym uruchomieniu zaloguj się tam ręcznie do
-konta Google — sesja zostanie zapamiętana i nie trzeba będzie się logować przy
-kolejnych uruchomieniach.
-
----
-
-## 4. Kolejność testowania (od najprostszych do najbardziej wymagających)
-
-### 4.1 Parser komend — bez mikrofonu, bez GUI (najszybszy test)
 ```bash
-pytest tests/test_commands.py -v
+python main.py --mikrofony
 ```
 
-### 4.2 Mikrofon + rozpoznawanie mowy
+Jeśli domyślne urządzenie to nie ten mikrofon, którego chcesz używać, wpisz
+jego indeks z tej listy do `MICROPHONE_INDEX` w [config.py](config.py).
+
+---
+
+## 3. Jednorazowa konfiguracja Discorda
+
+Dwie rzeczy trzeba ustawić ręcznie **w samej aplikacji Discord**:
+
+1. **Ustawienia użytkownika → Dostępność → włącz „Obsługa czytnika ekranu"**
+   (Screen Reader Support). Bez tego elementy interfejsu nie mają nazw
+   czytelnych dla automatyzacji i komendy „wycisz użytkownika" oraz
+   „pokaż ekran" nie zadziałają.
+
+2. **Ustawienia użytkownika → Głos i wideo → Skróty klawiszowe** → dodaj:
+   - „Toggle Mute" = `Ctrl+Shift+M`
+   - „Toggle Deafen" = `Ctrl+Shift+D`
+   - Dla obu zaznacz **„Ten skrót działa globalnie"** — inaczej zadziałają
+     tylko wtedy, gdy okno Discorda jest aktywne.
+
+   Kombinacje możesz zmienić w [config.py](config.py) (`DISCORD_MUTE_HOTKEY`,
+   `DISCORD_DEAFEN_HOTKEY`), byle zgadzały się z tym, co ustawisz w Discordzie.
+
+Komenda „opuść kanał" nie ma w Discordzie domyślnego skrótu — jeśli chcesz jej
+używać, przypisz własny skrót do akcji „Disconnect" i dodaj go do `config.py`.
+
+---
+
+## 4. Jednorazowa konfiguracja YouTube
+
+JARVIS otwiera **osobną przeglądarkę Chrome** z własnym profilem
+(`data/chrome_profile/`), oddzielnym od Twojej codziennej przeglądarki.
+Przy pierwszym uruchomieniu zaloguj się w niej do Google — sesja zostanie
+zapamiętana na kolejne razy.
+
+---
+
+## 5. Kolejność testowania
+
+Od najprostszego do najbardziej wymagającego — jeśli coś padnie, wiadomo
+dokładnie na którym poziomie.
+
+### 5.1 Logika komend (bez sprzętu, ~1 sekunda)
+
+```bash
+pytest tests/ -v
+```
+
+47 testów, nie wymagają mikrofonu, przeglądarki ani Discorda.
+
+### 5.2 Mikrofon i rozpoznawanie mowy
+
 ```bash
 python test_microphone.py
 ```
-Powie "🎤 Testowanie mikrofonu..." — powiedz cokolwiek po polsku, sprawdź czy
-rozpoznany tekst się zgadza.
 
-### 4.3 Pełna pętla głosowa (Speech + TTS)
+Powiedz coś po polsku i sprawdź, czy rozpoznany tekst się zgadza.
+
+### 5.3 Pełna pętla głosowa
+
 ```bash
 python test_voice_loop.py
 ```
 
-### 4.4 Automatyzacja YouTube (otworzy się osobne okno Chrome)
+JARVIS przywita się, wysłucha trzech wypowiedzi i każdą powtórzy.
+
+### 5.4 YouTube
+
 ```bash
 python test_youtube_automation.py
 ```
 
-### 4.5 Automatyzacja Discord
+Otworzy się osobne okno Chrome — obserwuj pauzę, wznowienie i pełny ekran.
+
+### 5.5 Discord
+
 ```bash
 python test_discord_automation.py
 ```
-Wybierz z menu: `1`/`2` (mute/deafen — powinny zadziałać od razu, jeśli zrobiłeś
-krok 2), `3` (zmiana kanału), `4`/`5` (**eksperymentalne** — mute konkretnej
-osoby / podgląd ekranu).
 
-Jeśli `4` lub `5` nie znajdują użytkownika, uruchom diagnostykę:
+Menu: `1`/`2` (mute/deafen — zadziałają, jeśli zrobiłeś krok 3), `3` (zmiana
+kanału), `4`/`5` (**eksperymentalne** — wyciszenie osoby, podgląd ekranu).
+
+Gdy `4` lub `5` nie znajdują użytkownika:
+
 ```bash
 python test_discord_automation.py dump
 ```
-To wypisze całe drzewo elementów UI Discorda (nazwa + typ) — poszukaj tam
-nicku danej osoby, żeby sprawdzić, czy w ogóle jest widoczny dla automatyzacji.
-Wklej mi wynik, jeśli coś nie działa — dostroję selektory.
 
-### 4.6 Cała aplikacja z GUI
+Wypisze drzewo elementów interfejsu Discorda. Poszukaj tam nicku danej osoby —
+jeśli go nie ma, znaczy że „Obsługa czytnika ekranu" jest wyłączona. Jeśli jest,
+a mimo to nie działa, wyślij ten zrzut — na jego podstawie da się dostroić
+selektory.
+
+### 5.6 Cała aplikacja
+
 ```bash
 python main.py
 ```
-- **"🎤 Słuchaj (jedno polecenie)"** — jednorazowe rozpoznanie i wykonanie (nie
-  trzeba mówić "Dżarwis").
-- **"🔁 Nasłuchuj ciągle"** — pętla w tle; wykonuje komendę TYLKO gdy usłyszy
-  słowo aktywacyjne ("Dżarwis, ..."), żeby nie reagować na przypadkową mowę.
+
+- **„Słuchaj (jedno polecenie)"** — jedno rozpoznanie; słowo aktywacyjne zbędne.
+- **„Nasłuchuj ciągle"** — pętla w tle; reaguje dopiero po usłyszeniu
+  „Dżarwis, ...", żeby nie wykonywać przypadkowych fraz z rozmowy.
 
 ---
 
-## 5. Ściąga komend głosowych
+## 6. Ściąga komend
 
-| Powiedz (po "Dżarwis, ...") | Robi |
+Pełna lista z opisem działania jest w [README.md](README.md#komendy-głosowe).
+Najczęściej używane:
+
+```
+Dżarwis, pomiń reklamę            Dżarwis, wycisz mikrofon
+Dżarwis, pauza                    Dżarwis, wycisz dźwięk
+Dżarwis, odtwórz                  Dżarwis, przełącz na kanał ogólny
+Dżarwis, pełny ekran              Dżarwis, wycisz użytkownika kowalski
+Dżarwis, jaka godzina             Dżarwis, pokaż ekran kowalskiego
+Dżarwis, wyłącz się
+```
+
+---
+
+## 7. Gdy coś nie działa
+
+| Objaw | Co zrobić |
 |---|---|
-| pomiń reklamę | Pomija reklamę na YouTube |
-| odtwórz / pauza | Play / Pause |
-| następne / poprzednie wideo | Zmiana wideo |
-| pełny ekran | Fullscreen YouTube |
-| wycisz mikrofon / włącz mikrofon | Toggle własny mikrofon (Discord) |
-| wycisz dźwięk | Toggle deafen (Discord) |
-| przełącz na kanał [nazwa] | Zmiana kanału (Discord) |
-| dołącz do kanału [nazwa] | Dołączenie do kanału (Discord) |
-| wycisz użytkownika [nazwa] | Lokalny mute osoby, tylko dla Ciebie ⚠️ eksperymentalne |
-| pokaż ekran [nazwa] | Podgląd czyjegoś udostępnionego ekranu ⚠️ eksperymentalne |
-| jaka godzina | Mówi aktualną godzinę |
-| wyłącz się | Zamyka aplikację (i przeglądarkę YouTube) |
+| `pip install pyaudio` się wywala | `pip install pipwin` a potem `pipwin install pyaudio` |
+| Nie słychać odpowiedzi, w logu „Nie znaleziono głosu" | Windows → Ustawienia → Czas i język → Mowa → dodaj polski pakiet głosowy |
+| JARVIS nie słyszy / słyszy nie ten mikrofon | `python main.py --mikrofony`, ustaw `MICROPHONE_INDEX` w `config.py` |
+| „Błąd usługi rozpoznawania" | Rozpoznawanie idzie przez Google — sprawdź internet |
+| Selenium nie startuje / błąd ChromeDrivera | `pip install --upgrade webdriver-manager`; sprawdź, czy Chrome jest zainstalowany |
+| „Nie znaleziono okna Discord" | Uruchom aplikację **desktopową** Discorda (wersja w przeglądarce nie zadziała) |
+| Wyciszenie osoby / podgląd ekranu nie działa | Krok 3 punkt 1, potem `python test_discord_automation.py dump` |
+| Komenda rozpoznana, ale nie ta co trzeba | Zajrzyj do `logs/jarvis.log` — jest tam rozpoznany tekst i pewność dopasowania |
+
+Wszystko, co się dzieje, ląduje w `logs/jarvis.log` — to pierwsze miejsce
+do sprawdzenia przy każdym problemie.
 
 ---
 
-## 6. Rozwiązywanie problemów
+## 8. Czego jeszcze nie ma
 
-| Problem | Rozwiązanie |
-|---|---|
-| `pip install pyaudio` błąd | `pip install pipwin && pipwin install pyaudio` |
-| Brak polskiego głosu TTS (log: "Nie znaleziono głosu") | Windows → Ustawienia → Czas i język → Mowa → dodaj polski pakiet głosowy |
-| spaCy: `OSError: [E050]` | `python -m spacy download pl_core_news_sm` |
-| Selenium nie startuje / błąd ChromeDriver | `pip install --upgrade webdriver-manager`, upewnij się że Chrome jest zainstalowany |
-| "Nie znaleziono okna Discord" | Upewnij się, że aplikacja desktopowa Discord jest uruchomiona (nie wersja przeglądarkowa) |
-| `mute_user`/`view_user_screen` nie znajdują osoby | Sprawdź krok 2 (Screen Reader Support), uruchom `python test_discord_automation.py dump` i poszukaj nicku w wyniku |
-| Rozpoznawanie mowy nie działa / `RequestError` | Sprawdź połączenie internetowe — `recognize_google()` wymaga internetu |
-
----
-
-## 7. Status projektu
-
-✅ Gotowe i przetestowane logicznie (czeka na testy na żywym sprzęcie):
-Speech Recognition, TTS, NLP Parser, YouTube Automation, Discord (mute/deafen/kanały).
-
-⚠️ Eksperymentalne (może wymagać dostrojenia po pierwszym teście):
-`discord_mute_user`, `discord_view_screen` — zależą od dokładnych etykiet UI
-w Twojej wersji/języku Discorda.
+- Nic nie było uruchomione na żywym sprzęcie — spodziewaj się drobnych poprawek.
+- Wyciszanie konkretnej osoby i podgląd cudzego ekranu opierają się o układ
+  interfejsu Discorda i mogą wymagać dostrojenia selektorów.
+- „Opuść kanał" czeka na własny skrót w Discordzie (patrz krok 3).

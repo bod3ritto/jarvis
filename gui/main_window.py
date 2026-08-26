@@ -1,18 +1,20 @@
 """
 gui/main_window.py — Główne okno GUI JARVIS (PyQt6).
 
-Nasłuch mikrofonu działa w osobnym QThread (recognize() jest blokujące),
-komunikacja z UI przez sygnały Qt (bezpieczne wątkowo — nie dotykamy
-widgetów bezpośrednio z wątku nasłuchu).
+Dwa rodzaje pracy trafiają poza wątek interfejsu:
+- nasłuch mikrofonu (ListenerThread) — recognize() blokuje na kilka sekund,
+- wykonanie komendy (CommandWorker) — TTS i Selenium potrafią zająć sekundy.
+Gdyby którekolwiek działo się na wątku GUI, okno zamarzałoby na ten czas.
+Wymiana danych idzie wyłącznie przez sygnały Qt.
 
-Dwa tryby:
-- "Słuchaj (jedno polecenie)" — jednorazowe rozpoznanie, wykonuje się od razu
-  (świadome działanie użytkownika = nie trzeba mówić słowa aktywacyjnego).
-- "Nasłuchuj ciągle" — pętla w tle; wykonuje komendę TYLKO jeśli usłyszy
-  słowo aktywacyjne ("Dżarwis"), żeby nie reagować na przypadkową mowę/rozmowy.
+Tryby pracy:
+- "Słuchaj (jedno polecenie)" — jedno rozpoznanie; słowo aktywacyjne zbędne,
+  bo kliknięcie samo w sobie jest świadomą decyzją użytkownika.
+- "Nasłuchuj ciągle" — pętla w tle; wykonuje komendę TYLKO po usłyszeniu
+  słowa aktywacyjnego ("Dżarwis"), żeby nie reagować na zwykłą rozmowę.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QThread, pyqtSignal
 from PyQt6.QtGui import QFont
@@ -34,9 +36,12 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+LISTENER_STOP_TIMEOUT_MS = 3000
+WORKER_STOP_TIMEOUT_MS = 10000
+
 
 class ListenerThread(QThread):
-    """Nasłuchuje z mikrofonu w tle. single_shot=True -> jedno rozpoznanie i koniec wątku."""
+    """Nasłuchuje z mikrofonu w tle. single_shot=True -> jedno rozpoznanie i koniec."""
 
     recognized = pyqtSignal(str)
     no_speech = pyqtSignal()
@@ -50,18 +55,33 @@ class ListenerThread(QThread):
     def run(self) -> None:
         while self._running:
             text = self.speech_engine.recognize()
-            if not self._running:
+            if not self._running:  # zatrzymano w trakcie nasłuchu — nie zgłaszaj wyniku
                 break
             if text:
                 self.recognized.emit(text)
             else:
                 self.no_speech.emit()
-
             if self.single_shot:
                 break
 
     def stop(self) -> None:
         self._running = False
+
+
+class CommandWorker(QThread):
+    """Wykonuje jedną komendę poza wątkiem GUI (TTS + Selenium potrafią trwać)."""
+
+    done = pyqtSignal(str, bool)
+
+    def __init__(self, executor: CommandExecutor, command: str, params: Dict, parent=None):
+        super().__init__(parent)
+        self.executor = executor
+        self.command = command
+        self.params = params
+
+    def run(self) -> None:
+        ok = self.executor.execute(self.command, self.params)
+        self.done.emit(self.command, ok)
 
 
 class JarvisWindow(QMainWindow):
@@ -76,11 +96,16 @@ class JarvisWindow(QMainWindow):
         self.executor = CommandExecutor(tts=self.tts)
 
         self.listener_thread: Optional[ListenerThread] = None
+        self.workers: List[CommandWorker] = []  # trzymamy referencje, inaczej GC ubije wątek
 
         self._setup_ui()
         self._apply_styles()
 
-    # ---------------- UI setup ----------------
+        if not self.tts.available:
+            self._log("⚠️ TTS niedostępny — JARVIS działa, ale nie będzie mówić")
+
+    # ---------------- Budowa interfejsu ----------------
+
     def _setup_ui(self) -> None:
         main_widget = QWidget()
         self.setCentralWidget(main_widget)
@@ -137,45 +162,54 @@ class JarvisWindow(QMainWindow):
         )
 
     def _log(self, text: str) -> None:
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        self.text_edit.append(f"[{timestamp}] {text}")
+        self.text_edit.append(f"[{datetime.now():%H:%M:%S}] {text}")
 
     def _set_status(self, text: str, color: str = "white") -> None:
         self.status_label.setText(f"Status: {text}")
         self.status_label.setStyleSheet(f"color: {color};")
 
-    # ---------------- Tryb jednorazowy ----------------
+    # ---------------- Nasłuch ----------------
+
     def start_single_listen(self) -> None:
         if self.listener_thread and self.listener_thread.isRunning():
-            logger.warning("⚠️ Nasłuch już trwa")
+            self._log("⚠️ Nasłuch już trwa")
             return
 
         self._set_status("Słucham...", "#2ecc71")
         self.listener_thread = ListenerThread(self.speech_engine, single_shot=True)
-        self.listener_thread.recognized.connect(self._on_recognized_single_shot)
-        self.listener_thread.no_speech.connect(self._on_no_speech)
+        self.listener_thread.recognized.connect(
+            lambda text: self._process_recognized_text(text, require_activation=False)
+        )
+        self.listener_thread.no_speech.connect(
+            lambda: self._log("❌ Nie usłyszałem nic / nie zrozumiałem")
+        )
         self.listener_thread.finished.connect(lambda: self._set_status("Gotowy", "white"))
         self.listener_thread.start()
 
-    def _on_recognized_single_shot(self, text: str) -> None:
-        self._process_recognized_text(text, require_activation=False)
-
-    def _on_no_speech(self) -> None:
-        self._log("❌ Nie usłyszałem nic / nie zrozumiałem")
-
-    # ---------------- Tryb ciągły (wymaga słowa aktywacyjnego) ----------------
     def toggle_continuous_listening(self, checked: bool) -> None:
-        if checked:
-            self._set_status("Nasłuchuję ciągle (powiedz 'Dżarwis, ...')", "#2ecc71")
-            self.btn_continuous.setText("🔁 Nasłuchiwanie WŁ.")
-            self.listener_thread = ListenerThread(self.speech_engine, single_shot=False)
-            self.listener_thread.recognized.connect(self._on_recognized_continuous)
-            self.listener_thread.start()
-        else:
+        if not checked:
             self.stop_listening()
+            return
 
-    def _on_recognized_continuous(self, text: str) -> None:
-        self._process_recognized_text(text, require_activation=True)
+        self._set_status("Nasłuchuję ciągle (powiedz 'Dżarwis, ...')", "#2ecc71")
+        self.btn_continuous.setText("🔁 Nasłuchiwanie WŁ.")
+        self.listener_thread = ListenerThread(self.speech_engine, single_shot=False)
+        self.listener_thread.recognized.connect(
+            lambda text: self._process_recognized_text(text, require_activation=True)
+        )
+        self.listener_thread.start()
+
+    def stop_listening(self) -> None:
+        if self.listener_thread:
+            self.listener_thread.stop()
+            if not self.listener_thread.wait(LISTENER_STOP_TIMEOUT_MS):
+                # recognize() wisi do końca swojego timeoutu — wątek zniknie sam
+                logger.info("⏳ Nasłuch dokańcza bieżące nagranie i zaraz się zatrzyma")
+        self.btn_continuous.setChecked(False)
+        self.btn_continuous.setText("🔁 Nasłuchuj ciągle")
+        self._set_status("Zatrzymano", "#e74c3c")
+
+    # ---------------- Rozpoznanie -> komenda ----------------
 
     def _process_recognized_text(self, text: str, require_activation: bool) -> None:
         self._log(f"🎤 Rozpoznano: {text}")
@@ -185,23 +219,33 @@ class JarvisWindow(QMainWindow):
             return
 
         command, confidence, params = self.parser.parse(text)
-        self._log(f"📊 Pewność: {confidence:.0%}")
-
-        if command:
-            self._log(f"✅ Komenda: {command} {params or ''}")
-            self.executor.execute(command, params)
-        else:
+        if not command:
             self._log("❌ Nie rozpoznano komendy")
+            return
 
-    def stop_listening(self) -> None:
-        if self.listener_thread:
-            self.listener_thread.stop()
-            self.listener_thread.wait(1000)
-        self.btn_continuous.setChecked(False)
-        self.btn_continuous.setText("🔁 Nasłuchuj ciągle")
-        self._set_status("Zatrzymano", "#e74c3c")
+        self._log(f"✅ {command} ({confidence:.0%}) {params if params else ''}")
+        self._dispatch(command, params)
+
+    def _dispatch(self, command: str, params: Dict) -> None:
+        """Uruchamia komendę w tle, żeby interfejs pozostał responsywny."""
+        worker = CommandWorker(self.executor, command, params)
+        worker.done.connect(self._on_command_done)
+        worker.finished.connect(lambda: self.workers.remove(worker) if worker in self.workers else None)
+        self.workers.append(worker)
+        worker.start()
+
+    def _on_command_done(self, command: str, ok: bool) -> None:
+        if not ok:
+            self._log(f"⚠️ Komenda '{command}' zakończyła się niepowodzeniem")
+        elif command == "system_exit":
+            self.close()  # zamykamy z wątku GUI, już po wypowiedzeniu pożegnania
+
+    # ---------------- Zamykanie ----------------
 
     def closeEvent(self, event) -> None:
         self.stop_listening()
+        for worker in list(self.workers):
+            worker.wait(WORKER_STOP_TIMEOUT_MS)
         self.executor.shutdown()
+        self.tts.shutdown()
         event.accept()

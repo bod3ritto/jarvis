@@ -1,0 +1,150 @@
+# ============================================================================
+# JARVIS - Voice Assistant Requirements
+# Python 3.10+ Required
+# ============================================================================
+
+# ============================================================================
+# SPEECH RECOGNITION & VOICE I/O
+# ============================================================================
+SpeechRecognition==3.10.0          # Google Speech API & local recognition
+pyaudio==0.2.13                    # Audio input from microphone
+vosk==0.3.32                       # Offline speech recognition
+pocketsphinx==5.2                  # Lightweight offline recognition
+pydub==0.25.1                      # Audio processing
+
+# ============================================================================
+# TEXT-TO-SPEECH (SYNTHESIS)
+# ============================================================================
+pyttsx3==2.90                      # Offline text-to-speech (Polish support)
+gTTS==2.4.0                        # Google Text-to-Speech (online)
+
+# ============================================================================
+# BROWSER AUTOMATION
+# ============================================================================
+selenium==4.15.2                   # Browser automation (YouTube, Discord web)
+webdriver-manager==4.0.1           # Automatic Chrome/Firefox driver management
+pyautogui==0.9.53                  # Mouse & keyboard control for UI automation
+
+# ============================================================================
+# DISCORD INTEGRATION
+# ============================================================================
+discord.py==2.3.2                  # Discord bot & client library
+PyNaCl==1.5.0                      # Encryption library for Discord voice
+
+# ============================================================================
+# NATURAL LANGUAGE PROCESSING (NLP)
+# ============================================================================
+spacy==3.7.2                       # Advanced NLP (Polish language model)
+nltk==3.8.1                        # Natural language toolkit (backup NLP)
+python-Levenshtein==0.21.1         # Fuzzy matching for command recognition
+
+# ============================================================================
+# GRAPHICAL USER INTERFACE
+# ============================================================================
+PyQt6==6.6.1                       # Modern GUI framework
+PyQt6-Qt6==6.6.1                   # Qt6 bindings for PyQt6
+PyQt6-sip==13.6.0                  # SIP bindings for PyQt6
+
+# ============================================================================
+# SYSTEM & WINDOW MANAGEMENT
+# ============================================================================
+pygetwindow==0.0.9                 # Window management (find Discord/Chrome)
+psutil==5.9.6                      # System utilities (CPU, memory, processes)
+pywin32==305; sys_platform == 'win32'  # Windows-specific utilities
+pywinauto==0.6.8; sys_platform == 'win32'  # UI Automation (Discord: mute per-user, screen-share view)
+
+# ============================================================================
+# CONFIGURATION & ENVIRONMENT
+# ============================================================================
+python-dotenv==1.0.0               # Load .env configuration files
+configparser==6.0.0                # INI file support
+
+# ============================================================================
+# LOGGING & DEBUGGING
+# ============================================================================
+colorlog==6.8.0                    # Colored logging output
+loguru==0.7.2                       # Better logging library (alternative)
+
+# ============================================================================
+# HTTP & API REQUESTS
+# ============================================================================
+requests==2.31.0                   # HTTP library (weather API, etc)
+urllib3==2.1.0                     # URLlib3 (dependency for requests)
+
+# ============================================================================
+# DATA & SERIALIZATION
+# ============================================================================
+pyyaml==6.0.1                      # YAML configuration support
+json5==0.9.14                      # Extended JSON support
+
+# ============================================================================
+# SCHEDULING & TIMING
+# ============================================================================
+APScheduler==3.10.4                # Task scheduling (reminders, etc)
+pytz==2023.3                       # Timezone support
+
+# ============================================================================
+# TESTING & QUALITY ASSURANCE
+# ============================================================================
+pytest==7.4.3                      # Testing framework
+pytest-cov==4.1.0                  # Code coverage
+pytest-asyncio==0.21.1             # Async test support
+black==23.12.0                     # Code formatter (PEP 8)
+pylint==3.0.3                      # Code quality checker
+flake8==6.1.0                      # Style guide enforcement
+
+# ============================================================================
+# ASYNC & CONCURRENCY
+# ============================================================================
+asyncio-contextmanager==1.0.0      # Async context managers
+aiodns==3.1.1                      # Async DNS resolver
+
+# ============================================================================
+# OPTIONAL: ADVANCED FEATURES
+# ============================================================================
+# Uncomment for advanced features:
+
+# google-cloud-speech==2.21.0       # Google Cloud Speech API (high accuracy)
+# google-cloud-texttospeech==2.14.0 # Google Cloud Text-to-Speech (premium)
+# openai==1.3.8                     # OpenAI GPT integration
+# anthropic==0.7.8                  # Anthropic Claude API
+# groq==0.4.1                       # Groq API (fast LLM)
+
+# ============================================================================
+# SPOTIFY INTEGRATION (Optional)
+# ============================================================================
+# spotipy==2.23.0                   # Spotify API client
+
+# ============================================================================
+# WEATHER & GEO (Optional)
+# ============================================================================
+# geopy==2.3.0                      # Geolocation
+# pyowm==3.9.1                      # OpenWeatherMap API
+
+# ============================================================================
+# DATABASE (Optional - for command history)
+# ============================================================================
+# sqlalchemy==2.0.23                # ORM
+# alembic==1.13.0                   # Database migrations
+
+# ============================================================================
+# NOTES
+# ============================================================================
+# Installation:
+#   pip install -r requirements.txt
+#
+# Specific OS requirements:
+#   Windows: pyaudio requires Visual C++ Build Tools
+#   macOS: requires Xcode Command Line Tools (xcode-select --install)
+#   Linux: requires libpulse-dev, libpython3-dev
+#
+# Optional NLP Model (after pip install):
+#   python -m spacy download pl_core_news_sm  # Polish
+#   python -m spacy download en_core_web_sm   # English
+#
+# For offline Vosk models, download from:
+#   https://github.com/alphacep/vosk-models/releases
+#
+# Generated: 2026-08-26
+# Author: Brajan
+# ============================================================================

@@ -1,0 +1,29 @@
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# Logs
+logs/*.log
+
+# App data (user-specific, generated at runtime)
+data/*.json
+data/voice_profiles/
+
+# Environment variables / secrets
+.env
+
+# IDE
+.vscode/
+.idea/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db

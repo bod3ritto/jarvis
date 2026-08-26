@@ -21,6 +21,20 @@ pip install pipwin
 pipwin install pyaudio
 ```
 
+Jeśli `pipwin` też się wysypie (najnowszy Python), zainstaluj Python 3.12 obok:
+
+```bash
+winget install python.python.3.12
+```
+
+Zamknij PowerShell, otwórz na nowo, i utwórz środowisko na wersji 3.12:
+
+```bash
+py -3.12 -m venv venv
+venvScriptsctivate
+pip install -r requirements.txt
+```
+
 > Modelu językowego nie trzeba pobierać — parser komend działa bez spaCy.
 
 ---

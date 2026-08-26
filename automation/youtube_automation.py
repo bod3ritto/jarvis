@@ -204,11 +204,28 @@ class YouTubeAutomation:
             return False
 
     def fullscreen(self) -> bool:
-        """Przełącza pełny ekran (klawisz 'f' odtwarzacza YouTube)."""
+        """
+        Przełącza pełny ekran przez JS Fullscreen API.
+
+        Nie symulujemy klawisza 'f' na elemencie <video> — YouTube nakłada na
+        wideo warstwy sterujące, więc element bywa "not interactable" dla
+        Seleniuma mimo że jest widoczny. JS omija ten problem całkowicie.
+        """
         if not self._require_driver("pełny ekran"):
             return False
         try:
-            self._get_video_element().send_keys("f")
+            video = self._get_video_element()
+            self.driver.execute_script(
+                """
+                if (document.fullscreenElement) {
+                    document.exitFullscreen();
+                } else {
+                    var player = document.querySelector('.html5-video-player') || arguments[0];
+                    player.requestFullscreen();
+                }
+                """,
+                video,
+            )
             logger.info("🖥️ Pełny ekran")
             return True
         except (TimeoutException, NoSuchElementException, WebDriverException) as e:

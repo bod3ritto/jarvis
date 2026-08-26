@@ -16,6 +16,7 @@ from selenium.common.exceptions import (
 )
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
@@ -205,27 +206,28 @@ class YouTubeAutomation:
 
     def fullscreen(self) -> bool:
         """
-        Przełącza pełny ekran przez JS Fullscreen API.
+        Przełącza pełny ekran klikając prawdziwy przycisk w pasku odtwarzacza.
 
-        Nie symulujemy klawisza 'f' na elemencie <video> — YouTube nakłada na
-        wideo warstwy sterujące, więc element bywa "not interactable" dla
-        Seleniuma mimo że jest widoczny. JS omija ten problem całkowicie.
+        Chrome wymaga, żeby Fullscreen API wywoływało prawdziwe kliknięcie
+        użytkownika ("user gesture") — element.click() z execute_script()
+        się nie liczy i YouTube go odrzuca. Klawisz 'f' wysłany na <video>
+        też zawodzi, bo element bywa "not interactable" pod nakładkami
+        sterującymi. Kliknięcie realnego przycisku ytp-fullscreen-button
+        omija oba problemy naraz.
         """
         if not self._require_driver("pełny ekran"):
             return False
         try:
-            video = self._get_video_element()
-            self.driver.execute_script(
-                """
-                if (document.fullscreenElement) {
-                    document.exitFullscreen();
-                } else {
-                    var player = document.querySelector('.html5-video-player') || arguments[0];
-                    player.requestFullscreen();
-                }
-                """,
-                video,
+            player = WebDriverWait(self.driver, ELEMENT_WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.ID, "movie_player"))
             )
+            # Pasek sterowania chowa się po bezczynności — trzeba go odsłonić
+            # ruchem myszy, zanim przycisk stanie się klikalny.
+            ActionChains(self.driver).move_to_element(player).perform()
+            button = WebDriverWait(self.driver, ELEMENT_WAIT_TIMEOUT).until(
+                EC.element_to_be_clickable((By.CLASS_NAME, "ytp-fullscreen-button"))
+            )
+            button.click()
             logger.info("🖥️ Pełny ekran")
             return True
         except (TimeoutException, NoSuchElementException, WebDriverException) as e:

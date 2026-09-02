@@ -11,8 +11,9 @@
 # ---------------------------------------------------------------------------
 # ROZPOZNAWANIE MOWY
 # ---------------------------------------------------------------------------
-SpeechRecognition>=3.10.0     # Klient darmowego endpointu Google Speech
+SpeechRecognition>=3.10.0     # Przechwytywanie z mikrofonu + opcjonalny klient Google (SPEECH_ENGINE="google")
 pyaudio>=0.2.14               # Wejście z mikrofonu
+faster-whisper>=1.0.0         # Lokalne, offline STT (SPEECH_ENGINE="whisper", domyślne) — model pobiera się przy pierwszym użyciu
 
 # ---------------------------------------------------------------------------
 # SYNTEZA MOWY
@@ -52,7 +53,6 @@ pytest>=7.4.0
 # OPCJONALNE — pod przyszłe funkcje, celowo NIE instalowane domyślnie.
 # Odkomentuj dopiero, gdy dana funkcja faktycznie powstanie.
 # ============================================================================
-# vosk>=0.3.45                # Rozpoznawanie mowy offline (zamiast Google)
 # gTTS>=2.4.0                 # TTS online, naturalniejszy głos, wymaga internetu
 # requests>=2.31.0            # Integracje HTTP (np. pogoda)
 # spotipy>=2.23.0             # Sterowanie Spotify

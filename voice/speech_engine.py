@@ -1,14 +1,20 @@
 """
 voice/speech_engine.py — Rozpoznawanie mowy (Speech-to-Text).
 
-Korzysta z darmowego, nieoficjalnego endpointu Google przez
-SpeechRecognition.recognize_google() — bez klucza API, ale wymaga internetu.
+Domyślnie: lokalny Whisper (faster-whisper) — offline, nie zależy od jakości
+darmowego, nieoficjalnego endpointu Google. Opcja "google" (recognize_google())
+zostaje jako zapasowa dla słabszych maszyn, gdzie lokalny model za bardzo
+obciąża CPU.
+
+Model Whisper jest wspólny dla wszystkich instancji (ładowanie trwa kilka
+sekund i zajmuje pamięć) — wczytuje się raz, leniwie, przy pierwszym użyciu.
 
 Kalibracja szumu otoczenia robiona jest RAZ, przy pierwszym nasłuchu.
 Powtarzanie jej przed każdą komendą dokładało pół sekundy do każdego
 rozpoznania, a warunki akustyczne i tak nie zmieniają się z minuty na minutę.
 Do ponownej kalibracji (np. po włączeniu wentylatora) służy recalibrate().
 """
+import io
 import threading
 from typing import Callable, List, Optional
 
@@ -20,6 +26,22 @@ from utils.logger import get_logger
 logger = get_logger(__name__)
 
 CALIBRATION_DURATION = 0.8  # sekund nasłuchu tła przy kalibracji
+
+_whisper_model = None  # leniwy singleton — współdzielony, żeby nie ładować modelu wielokrotnie
+
+
+def _get_whisper_model():
+    global _whisper_model
+    if _whisper_model is None:
+        from faster_whisper import WhisperModel  # ciężki import — tylko gdy faktycznie używany
+
+        logger.info(f"🧠 Ładuję model Whisper ({config.WHISPER_MODEL_SIZE})... (pierwszy raz może potrwać)")
+        _whisper_model = WhisperModel(
+            config.WHISPER_MODEL_SIZE,
+            device=config.WHISPER_DEVICE,
+            compute_type=config.WHISPER_COMPUTE_TYPE,
+        )
+    return _whisper_model
 
 
 class SpeechEngine:
@@ -68,10 +90,13 @@ class SpeechEngine:
                     source, timeout=timeout, phrase_time_limit=phrase_time_limit
                 )
 
-            if self.engine != "google":
+            if self.engine == "whisper":
+                text = self._recognize_whisper(audio)
+            elif self.engine == "google":
+                text = self.recognizer.recognize_google(audio, language=self.language)
+            else:
                 raise ValueError(f"Nieobsługiwany silnik rozpoznawania mowy: {self.engine}")
 
-            text = self.recognizer.recognize_google(audio, language=self.language)
             logger.info(f"📝 Rozpoznano: {text}")
             return text.lower()
 
@@ -87,6 +112,19 @@ class SpeechEngine:
         except OSError as e:
             logger.error(f"❌ Problem z mikrofonem: {e}")
             return None
+        except ImportError as e:
+            logger.error(f"❌ Brak biblioteki dla silnika '{self.engine}': {e}")
+            return None
+
+    def _recognize_whisper(self, audio: sr.AudioData) -> str:
+        """Transkrybuje lokalnym Whisperem. Pusty wynik zgłasza tak samo jak Google."""
+        model = _get_whisper_model()
+        wav_stream = io.BytesIO(audio.get_wav_data())
+        segments, _info = model.transcribe(wav_stream, language=config.WHISPER_LANGUAGE, beam_size=5)
+        text = " ".join(segment.text.strip() for segment in segments).strip()
+        if not text:
+            raise sr.UnknownValueError()
+        return text
 
     def start_listening_async(self, callback: Callable[[str], None]) -> None:
         """Nasłuch w tle; callback dostaje każdy rozpoznany tekst."""

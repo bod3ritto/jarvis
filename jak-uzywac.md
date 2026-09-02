@@ -18,7 +18,7 @@ Cztery rzeczy, które warto wiedzieć od razu:
 
 - **Program jest nowy i nie był jeszcze sprawdzony w działaniu.** Pierwsze
   uruchomienie może wymagać drobnych poprawek — to normalne na tym etapie.
-- **Potrzebny jest internet.** Rozpoznawanie mowy odbywa się przez Google.
+- **Rozpoznawanie mowy działa offline** — po pierwszym uruchomieniu, gdy pobierze się model. Internet nadal potrzebny do samego YouTube.
 - **Discord musi być otwarty** — w wersji zainstalowanej na komputerze,
   nie na stronie w przeglądarce.
 - **YouTube otwiera się w osobnym oknie Chrome.** To nie jest Twoja zwykła
@@ -128,6 +128,9 @@ urządzeń, i wpisz numer właściwego do `config.py` w miejscu `MICROPHONE_INDE
 **Słyszy, ale nic nie odpowiada głosem.**
 Brakuje polskiego głosu w systemie: Windows → Ustawienia → Czas i język → Mowa →
 dodaj polski pakiet głosowy. Dżarwis działa też bez tego, tylko milczy.
+
+**Pierwsze polecenie długo czeka na odpowiedź.**
+To normalne — przy pierwszym uruchomieniu pobiera się i ładuje lokalny model rozpoznawania mowy (Whisper). Kolejne razy będą szybsze.
 
 **Wykonuje nie tę komendę, co trzeba.**
 Powiedz to krócej i wyraźniej — im więcej dodatkowych słów w zdaniu, tym mniej

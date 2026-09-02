@@ -2,19 +2,29 @@
 config.py — Globalna konfiguracja JARVIS.
 
 Decyzje architektoniczne (ustalone z użytkownikiem):
-- Speech Recognition: darmowy, nieoficjalny endpoint Google przez
-  SpeechRecognition.recognize_google() — bez klucza API.
+- Speech Recognition: lokalny Whisper (faster-whisper) — offline, nie zależy
+  od jakości darmowego endpointu Google. "google" zostaje jako opcja
+  zapasowa (recognize_google(), bez klucza API, wymaga internetu).
 - TTS: pyttsx3 (offline, głosy systemowe).
 """
 import os
 
 # ============= SPEECH RECOGNITION =============
-SPEECH_ENGINE = "google"  # "google" (darmowy, wymaga internetu) lub "vosk" (offline, do dodania później)
-RECOGNITION_LANGUAGE = "pl-PL"  # Polski
+SPEECH_ENGINE = "whisper"  # "whisper" (lokalny, offline) lub "google" (darmowy, wymaga internetu)
+RECOGNITION_LANGUAGE = "pl-PL"  # Polski — używane przez silnik "google"
 MICROPHONE_INDEX = None  # None = domyślny mikrofon systemowy
 NOISE_THRESHOLD = 50  # Próg szumu (0-100), używany do kalibracji ambient noise
 LISTEN_TIMEOUT = 5  # Sekund oczekiwania na rozpoczęcie mowy
 PHRASE_TIME_LIMIT = 10  # Maks. długość jednej wypowiedzi w sekundach
+
+# Whisper: model pobiera się raz (z internetu) przy pierwszym uruchomieniu
+# i jest trzymany w cache — kolejne starty działają już całkowicie offline.
+# "small" to sensowny kompromis dokładność/szybkość na CPU dla polskiego;
+# "base" jest szybszy i lżejszy, ale częściej myli podobnie brzmiące słowa.
+WHISPER_MODEL_SIZE = "small"
+WHISPER_LANGUAGE = "pl"
+WHISPER_DEVICE = "cpu"
+WHISPER_COMPUTE_TYPE = "int8"  # szybsze na CPU niż domyślne float32, bez zauważalnej straty jakości
 
 # ============= TTS (TEXT-TO-SPEECH) =============
 TTS_ENGINE = "pyttsx3"  # offline

@@ -174,7 +174,9 @@ Dżarwis, wyłącz się
 | `pip install pyaudio` się wywala | `pip install pipwin` a potem `pipwin install pyaudio` |
 | Nie słychać odpowiedzi, w logu „Nie znaleziono głosu" | Windows → Ustawienia → Czas i język → Mowa → dodaj polski pakiet głosowy |
 | JARVIS nie słyszy / słyszy nie ten mikrofon | `python main.py --mikrofony`, ustaw `MICROPHONE_INDEX` w `config.py` |
-| „Błąd usługi rozpoznawania" | Rozpoznawanie idzie przez Google — sprawdź internet |
+| „Błąd usługi rozpoznawania" | Silnik `google` (jeśli aktywny) idzie przez internet — sprawdź połączenie |
+| Pierwsze uruchomienie długo "myśli" po komendzie głosowej | Normalne — lokalny model Whisper pobiera się i ładuje się do pamięci przy pierwszym użyciu |
+| Rozpoznaje słowa błędnie / od czapy | Domyślny silnik to lokalny Whisper (`SPEECH_ENGINE = "whisper"` w `config.py`) — dokładniejszy niż darmowe API Google. Możesz też podbić `WHISPER_MODEL_SIZE` z `"small"` na `"medium"` kosztem szybkości |
 | Selenium nie startuje / błąd ChromeDrivera | `pip install --upgrade webdriver-manager`; sprawdź, czy Chrome jest zainstalowany |
 | „Nie znaleziono okna Discord" | Uruchom aplikację **desktopową** Discorda (wersja w przeglądarce nie zadziała) |
 | Wyciszenie osoby / podgląd ekranu nie działa | Krok 3 punkt 1, potem `python test_discord_automation.py dump` |

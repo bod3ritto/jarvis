@@ -17,7 +17,7 @@ i Discordzie. Traktuj to jako solidną bazę do dopieszczenia, nie gotowy produk
 
 | Obszar | Stan |
 |---|---|
-| Rozpoznawanie mowy (Google, `pl-PL`) | gotowe, nietestowane na mikrofonie |
+| Rozpoznawanie mowy (lokalny Whisper, `pl`) | gotowe, nietestowane na mikrofonie |
 | Synteza mowy (pyttsx3, offline) | gotowe, nietestowane na głośnikach |
 | Parser komend | gotowe, pokryte testami |
 | YouTube (Selenium) | gotowe, nietestowane w przeglądarce |
@@ -179,7 +179,6 @@ python test_discord_automation.py   # Discord (menu interaktywne)
 - [ ] Uruchomienie i dostrojenie na żywym sprzęcie
 - [ ] Dostrojenie selektorów UI Discorda (mute osoby, podgląd ekranu)
 - [ ] „Opuść kanał" przez własny skrót Discorda
-- [ ] Rozpoznawanie offline (Vosk) jako alternatywa dla Google
 - [ ] Sterowanie odtwarzaczami systemowymi (Spotify, głośność)
 - [ ] Panel ustawień w interfejsie zamiast edycji `config.py`
 
